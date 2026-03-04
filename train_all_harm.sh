@@ -1,13 +1,10 @@
 #!/bin/bash
-# Train BERT, RoBERTa, and DeBERTa on all 3 harmfulness datasets.
+# Submit SLURM jobs to train BERT, RoBERTa, and DeBERTa on hhrlhf.
 # Usage: bash train_all_harm.sh
 
-set -e
-
 SCRIPT="train_harm_classifier.py"
-AEGIS="datasets/aegis"
-OBFUS="datasets/obfus"
-HHRLHF="datasets/hhrlhf"
+DATASET="datasets/hhrlhf"
+WORKDIR="$(pwd)"
 
 MODELS=(
     "bert-base-uncased"
@@ -20,17 +17,32 @@ SHORT_NAMES=(
     "deberta"
 )
 
-DATASETS=("$AEGIS" "$OBFUS" "$HHRLHF")
-DATASET_NAMES=("aegis" "obfus" "hhrlhf")
+mkdir -p logs
 
 for i in "${!MODELS[@]}"; do
-    for j in "${!DATASETS[@]}"; do
-        echo "===== Training ${SHORT_NAMES[$i]} on ${DATASET_NAMES[$j]} ====="
-        python "$SCRIPT" \
-            --model "${MODELS[$i]}" \
-            --dataset "${DATASETS[$j]}" \
-            --save_dir "models/${SHORT_NAMES[$i]}_${DATASET_NAMES[$j]}_binary"
-    done
-done
+    NAME="${SHORT_NAMES[$i]}_hhrlhf_binary"
+    echo "Submitting ${NAME}"
+    sbatch <<EOF
+#!/bin/bash
+#SBATCH --partition=nairr-gpu-shared
+#SBATCH --account=ddp477
+#SBATCH --ntasks-per-node=1
+#SBATCH --nodes=1
+#SBATCH --mem=32G
+#SBATCH --gpus=1
+#SBATCH -t 10:00:00
+#SBATCH --job-name=${NAME}
+#SBATCH --output=logs/${NAME}_%j.out
 
-echo "===== All training complete ====="
+module load cpu/0.15.4
+module load anaconda3/2020.11
+eval "\$(conda shell.bash hook)"
+conda activate focal
+cd ${WORKDIR}
+
+python ${SCRIPT} \\
+    --model "${MODELS[$i]}" \\
+    --dataset "${DATASET}" \\
+    --save_dir "models/${NAME}"
+EOF
+done
