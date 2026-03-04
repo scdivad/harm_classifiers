@@ -8,8 +8,8 @@ WORKDIR="$(pwd)"
 
 MODELS=(
     "bert-base-uncased"
-    "roberta-base"
-    "microsoft/deberta-v3-base"
+    # "roberta-base"
+    # "microsoft/deberta-v3-base"
 )
 SHORT_NAMES=(
     "bert"
@@ -43,6 +43,7 @@ cd ${WORKDIR}
 python ${SCRIPT} \\
     --model "${MODELS[$i]}" \\
     --dataset "${DATASET}" \\
-    --save_dir "models/${NAME}"
+    --save_dir "models/${NAME}" \\
+    --truncate_left true
 EOF
 done

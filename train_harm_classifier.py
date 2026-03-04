@@ -46,6 +46,10 @@ def get_args():
     parser.add_argument("--max_length", type=int, default=512)
     parser.add_argument("--multiclass", action="store_true",
                         help="Use all 8 AEGIS categories instead of binary (safe/harmful)")
+    parser.add_argument("--truncate_left", type=str, default="auto",
+                        choices=["true", "false", "auto"],
+                        help="Truncate from the left so model sees last max_length tokens. "
+                             "'auto' enables for hhrlhf datasets (default: auto)")
     parser.add_argument("--wandb_run_name", type=str, default=None)
     return parser.parse_args()
 
@@ -67,6 +71,18 @@ def main():
     label_names = ["Safe", "Harmful"] if binary else LABEL_NAMES
 
     tokenizer = AutoTokenizer.from_pretrained(args.model)
+
+    # Left truncation: keep the last max_length tokens (useful for conversational
+    # datasets like HH-RLHF where the assistant response is at the end).
+    truncate_left = args.truncate_left
+    if truncate_left == "auto":
+        truncate_left = "hhrlhf" in args.dataset.lower().replace("-", "").replace("_", "")
+    else:
+        truncate_left = truncate_left == "true"
+    if truncate_left:
+        tokenizer.truncation_side = "left"
+        print(f"Left truncation enabled — model will see the last {args.max_length} tokens")
+
     model = AutoModelForSequenceClassification.from_pretrained(
         args.model,
         num_labels=num_labels,
