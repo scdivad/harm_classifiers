@@ -1,0 +1,52 @@
+{
+  "builder_name": "parquet",
+  "citation": "",
+  "config_name": "default",
+  "dataset_name": "aegis-ai-content-safety-dataset-1.0",
+  "dataset_size": 9965787,
+  "description": "",
+  "download_checksums": {
+    "hf://datasets/nvidia/Aegis-AI-Content-Safety-Dataset-1.0@bd96d862068e47630197de64eb91f8d1481ff3e0/Content Moderation Extracted Annotations 02.08.24_train_release_0418_v1.parquet": {
+      "num_bytes": 4905593,
+      "checksum": null
+    },
+    "hf://datasets/nvidia/Aegis-AI-Content-Safety-Dataset-1.0@bd96d862068e47630197de64eb91f8d1481ff3e0/Content Moderation Extracted Annotations 02.08.24_test_release_0418_v1.parquet": {
+      "num_bytes": 558668,
+      "checksum": null
+    }
+  },
+  "download_size": 5464261,
+  "features": {
+    "text": {
+      "dtype": "string",
+      "_type": "Value"
+    },
+    "label": {
+      "dtype": "int64",
+      "_type": "Value"
+    }
+  },
+  "homepage": "",
+  "license": "",
+  "size_in_bytes": 15430048,
+  "splits": {
+    "train": {
+      "name": "train",
+      "num_bytes": 8952281,
+      "num_examples": 10798,
+      "dataset_name": "aegis-ai-content-safety-dataset-1.0"
+    },
+    "test": {
+      "name": "test",
+      "num_bytes": 1013506,
+      "num_examples": 1199,
+      "dataset_name": "aegis-ai-content-safety-dataset-1.0"
+    }
+  },
+  "version": {
+    "version_str": "0.0.0",
+    "major": 0,
+    "minor": 0,
+    "patch": 0
+  }
+}

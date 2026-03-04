@@ -1,0 +1,6 @@
+models/
+__pycache__/
+wandb/
+*.pyc
+datasets/*/train/cache-*.arrow
+datasets/*/test/cache-*.arrow
