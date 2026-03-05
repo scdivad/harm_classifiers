@@ -8,11 +8,11 @@ WORKDIR="$(pwd)"
 
 # Model dir, model_type, dataset, output file
 JOBS=(
-    "models/bert_harm_binary       bert    datasets/hhrlhf  gcg_results/bert_harm.pt"
+    "models/bert_harm_binary       bert    datasets/aegis   gcg_results/bert_harm.pt"
     "models/bert_obfus_binary      bert    datasets/obfus   gcg_results/bert_obfus.pt"
-    "models/roberta_harm_binary    roberta datasets/hhrlhf  gcg_results/roberta_harm.pt"
+    "models/roberta_harm_binary    roberta datasets/aegis   gcg_results/roberta_harm.pt"
     "models/roberta_obfus_binary   roberta datasets/obfus   gcg_results/roberta_obfus.pt"
-    "models/deberta_harm_binary    deberta datasets/hhrlhf  gcg_results/deberta_harm.pt"
+    "models/deberta_harm_binary    deberta datasets/aegis   gcg_results/deberta_harm.pt"
     "models/deberta_obfus_binary   deberta datasets/obfus   gcg_results/deberta_obfus.pt"
 )
 
@@ -21,7 +21,8 @@ mkdir -p logs gcg_results
 for entry in "${JOBS[@]}"; do
     read -r MODEL_DIR MODEL_TYPE DATASET OUTPUT <<< "${entry}"
     NAME="gcg_$(basename ${MODEL_DIR})"
-    echo "Submitting ${NAME}"
+    BATCH_SIZE=8
+    echo "Submitting ${NAME} (batch_size=${BATCH_SIZE})"
     sbatch <<EOF
 #!/bin/bash
 #SBATCH --partition=nairr-gpu-shared
@@ -37,7 +38,7 @@ for entry in "${JOBS[@]}"; do
 module load cpu/0.15.4
 module load anaconda3/2020.11
 eval "\$(conda shell.bash hook)"
-conda activate bertibp
+conda activate focal
 cd ${WORKDIR}
 
 python ${SCRIPT} \\
@@ -46,6 +47,6 @@ python ${SCRIPT} \\
     --dataset_path "${DATASET}" \\
     --output "${OUTPUT}" \\
     --num_examples 100 \\
-    --batch_size 8
+    --batch_size ${BATCH_SIZE}
 EOF
 done

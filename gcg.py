@@ -748,24 +748,30 @@ class BERTGCGOptimizer:
                 L = slot_input_lengths[b]
                 input_embeds_b = input_embeds[b:b+1, :L]  # [1, L, H] — real tokens only
                 n_cands = sampled.shape[0]
-                losses_b = []
+                target_b = slot_target_labels[b]
 
-                with torch.inference_mode():
-                    for s in range(0, n_cands, eval_bs):
-                        e = min(s + eval_bs, n_cands)
-                        bs = e - s
-                        cand_embeds = self.embedding_layer(sampled[s:e])
-                        full_embeds_sub = torch.cat(
-                            [input_embeds_b.expand(bs, -1, -1), cand_embeds], dim=1
-                        )
-                        attn_sub = torch.ones(bs, L + num_optim_tokens, device=self.device)
-                        lg = forward_with_embeds(
-                            self.model, self.model_type, full_embeds_sub, attn_sub
-                        )
-                        tgt = torch.full((bs,), slot_target_labels[b], device=self.device, dtype=torch.long)
-                        losses_b.append(F.cross_entropy(lg, tgt, reduction="none"))
+                def _eval_candidates(eval_batch_size, sampled=sampled, input_embeds_b=input_embeds_b,
+                                     L=L, target_b=target_b, n_cands=n_cands):
+                    losses_b = []
+                    with torch.inference_mode():
+                        for s in range(0, n_cands, eval_batch_size):
+                            e = min(s + eval_batch_size, n_cands)
+                            bs = e - s
+                            cand_embeds = self.embedding_layer(sampled[s:e])
+                            full_embeds_sub = torch.cat(
+                                [input_embeds_b.expand(bs, -1, -1), cand_embeds], dim=1
+                            )
+                            attn_sub = torch.ones(bs, L + num_optim_tokens, device=self.device)
+                            lg = forward_with_embeds(
+                                self.model, self.model_type, full_embeds_sub, attn_sub
+                            )
+                            tgt = torch.full((bs,), target_b, device=self.device, dtype=torch.long)
+                            losses_b.append(F.cross_entropy(lg, tgt, reduction="none"))
+                    return torch.cat(losses_b, dim=0)
 
-                all_cand_loss_list.append(torch.cat(losses_b, dim=0))
+                all_cand_loss_list.append(
+                    find_executable_batch_size(_eval_candidates, eval_bs)()
+                )
 
             # --- Select best candidate per slot, check success/timeout ---
             for b in range(B):
@@ -995,6 +1001,7 @@ if __name__ == "__main__":
     parser.add_argument("--num_examples", type=int, default=100, help="Max number of examples to attack")
     parser.add_argument("--dataset_path", type=str, default="/home/dcheung2/new/ibp_huggingface/sbert/datasets/aegis_preprocessed", help="Path to dataset")
     parser.add_argument("--batch_size", type=int, default=8, help="Number of examples to attack simultaneously")
+    parser.add_argument("--search_width", type=int, default=2048, help="Number of candidate suffixes per step")
     parser.add_argument("--verbose", action="store_true", help="Enable verbose debug output")
     parser.add_argument("--output", type=str, default="gcg_results.pt", help="Path to save attack results")
     args = parser.parse_args()
@@ -1023,7 +1030,7 @@ if __name__ == "__main__":
     model.eval()
 
     # --- 2. DATASET LOADING ---
-    print(f"Loading Aegis dataset from {args.dataset_path}...")
+    print(f"Loading dataset from {args.dataset_path}...")
     dataset = load_from_disk(args.dataset_path)
 
     dataset = dataset.map(lambda x: {"label": 0 if x["label"] == 0 else 1})
@@ -1072,8 +1079,8 @@ if __name__ == "__main__":
     # --- 4. BATCHED ATTACK WITH SLOT REFILLING ---
     config = BERTGCGConfig(
         num_steps=250,
-        search_width=2048,
-        topk=512,
+        search_width=args.search_width,
+        topk=min(512, args.search_width),
         verbose=args.verbose,
     )
     optimizer = BERTGCGOptimizer(model, tokenizer, config, DEVICE, model_type=args.model_type)
