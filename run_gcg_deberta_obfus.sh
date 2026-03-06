@@ -22,7 +22,7 @@ eval "\$(conda shell.bash hook)"
 conda activate focal
 cd ${WORKDIR}
 
-python oom_gcg.py \\
+python gcg.py \\
     --base_model_dir "models/deberta_obfus_binary" \\
     --model_type "deberta" \\
     --dataset_path "datasets/obfus" \\

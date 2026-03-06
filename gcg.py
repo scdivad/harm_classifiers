@@ -237,7 +237,6 @@ class BERTGCGOptimizer:
         Returns:
             Dictionary with optimization results
         """
-        # Store input_text for retokenization in compute_candidates_loss
         self._current_input_text = input_text
         print(f"Input text: {input_text}")
         print(f"Target label: {target_label}")
@@ -254,7 +253,8 @@ class BERTGCGOptimizer:
         
         input_ids = input_tokens["input_ids"]  # [1, input_len]
         input_attention_mask = input_tokens["attention_mask"]  # [1, input_len]
-        
+        self._current_input_ids = input_ids  # for compute_candidates_loss
+
         # Get embeddings for input
         input_embeds = self.embedding_layer(input_ids)  # [1, input_len, hidden_dim]
         
@@ -416,13 +416,16 @@ class BERTGCGOptimizer:
                 all_losses.append(current_loss)
                 all_suffixes.append(current_suffix)
 
-                # Use the retokenized verification because it's the most "real" test
-                full_text = input_text + " " + current_suffix
-                verify_inputs = self.tokenizer(full_text, return_tensors="pt", truncation=True, max_length=512).to(self.device)
+                # Verify by concatenating token IDs directly (matches optimization)
+                verify_ids = torch.cat([input_ids, optim_ids], dim=1)
+                verify_mask = torch.ones_like(verify_ids)
 
                 with torch.inference_mode():
-                    v_outputs = self.model(**verify_inputs)
-                    v_logits = v_outputs[0] if isinstance(v_outputs, tuple) else (v_outputs.logits if hasattr(v_outputs, 'logits') else v_outputs)
+                    v_logits = forward_with_embeds(
+                        self.model, self.model_type,
+                        self.embedding_layer(verify_ids),
+                        verify_mask.float(),
+                    )
                     v_pred = v_logits.argmax(dim=1).item()
 
                 print(f"\nStep {i}: Current Loss: {current_loss:.4f} | Prediction: {v_pred} (Target: {target_label})")
@@ -458,41 +461,12 @@ class BERTGCGOptimizer:
                         torch.tensor([target_label], device=self.device, dtype=torch.long)
                     ).item()
 
-                # Also verify using retokenization (what we do in final evaluation)
-                full_text = input_text + " " + current_suffix
-                verify_inputs = self.tokenizer(
-                    full_text,
-                    return_tensors="pt",
-                    truncation=True,
-                    max_length=512,
-                    padding=False,
-                ).to(self.device)
-
-                with torch.inference_mode():
-                    verify_outputs = self.model(**verify_inputs)
-                    if isinstance(verify_outputs, tuple):
-                        logits = verify_outputs[0]
-                    elif hasattr(verify_outputs, 'logits'):
-                        logits = verify_outputs.logits
-                    else:
-                        logits = verify_outputs
-                    verify_pred_token = logits.argmax(dim=1).item()
-                    verify_probs_token = F.softmax(logits, dim=1)[0]
-                    verify_loss_token = F.cross_entropy(
-                        logits,
-                        torch.tensor([target_label], device=self.device, dtype=torch.long)
-                    ).item()
-
                 print(f"\n===> Step {i}")
                 print(f"===> Suffix: {current_suffix}")
                 print(f"===> Optimized Loss (embedding-based): {current_loss:.4f}")
                 print(f"===> Verified Loss (embedding-based): {verify_loss_embed:.4f}")
                 print(f"===> Verified Prediction (embedding): {verify_pred_embed} (target: {target_label})")
                 print(f"===> Verified Probabilities (embedding): {verify_probs_embed.tolist()}")
-                print(f"===> Verified Loss (retokenized): {verify_loss_token:.4f}")
-                print(f"===> Verified Prediction (retokenized): {verify_pred_token} (target: {target_label})")
-                print(f"===> Verified Probabilities (retokenized): {verify_probs_token.tolist()}")
-                print(f"===> Tokenization mismatch: {verify_pred_embed != verify_pred_token}")
 
             # Clean up
             del token_grad
@@ -516,35 +490,30 @@ class BERTGCGOptimizer:
     def compute_candidates_loss(self, search_batch_size: int, candidate_ids: Tensor, target_label: int) -> Tensor:
         all_loss = []
         n_candidates = candidate_ids.shape[0]
-        
-        # 1. Pre-decode all candidates at once (Vectorize CPU work)
-        candidate_texts = self.tokenizer.batch_decode(candidate_ids, skip_special_tokens=True)
-        full_texts = [f"{self._current_input_text} {s}" for s in candidate_texts]
+        input_ids = self._current_input_ids  # [1, input_len]
+        input_len = input_ids.shape[1]
+        num_optim_tokens = candidate_ids.shape[1]
 
-        # 2. Use a much larger batch size. H100 can handle massive batches.
-        # Set search_batch_size to 512 or 1024 for BERT on H100.
         for i in range(0, n_candidates, search_batch_size):
-            batch_texts = full_texts[i : i + search_batch_size]
-            
-            # Use the Fast Tokenizer's batch capability
-            batch_inputs = self.tokenizer(
-                batch_texts,
-                return_tensors="pt",
-                truncation=True,
-                max_length=512,
-                padding=True
-            ).to(self.device)
+            batch_suffix = candidate_ids[i : i + search_batch_size]  # [bs, num_optim_tokens]
+            bs = batch_suffix.shape[0]
+
+            # Concatenate input IDs with suffix IDs directly (no retokenization)
+            batch_ids = torch.cat(
+                [input_ids.expand(bs, -1), batch_suffix], dim=1
+            )  # [bs, input_len + num_optim_tokens]
+            batch_mask = torch.ones(bs, input_len + num_optim_tokens, device=self.device)
 
             with torch.inference_mode():
-                logits = self.model(**batch_inputs)
+                batch_embeds = self.embedding_layer(batch_ids)
+                logits = forward_with_embeds(
+                    self.model, self.model_type, batch_embeds, batch_mask
+                )
 
-                # If logits is a sequence classification output object:
-                if hasattr(logits, 'logits'): logits = logits.logits
-
-                target_labels = torch.full((logits.shape[0],), target_label, device=self.device)
+                target_labels = torch.full((bs,), target_label, device=self.device)
                 loss = F.cross_entropy(logits, target_labels, reduction="none")
                 all_loss.append(loss)
-                    
+
         return torch.cat(all_loss, dim=0)
 
     def step_batched(
@@ -592,6 +561,7 @@ class BERTGCGOptimizer:
         _dtype = get_model_dtype(self.model, self.model_type)
         max_total_len = max_input_len + num_optim_tokens  # 512
         input_embeds = torch.zeros(B, max_input_len, self.hidden_dim, device=self.device, dtype=_dtype)
+        slot_input_ids = torch.zeros(B, max_input_len, device=self.device, dtype=torch.long)
         full_attention_mask = torch.zeros(B, max_total_len, device=self.device)
         optim_ids = init_optim_ids.unsqueeze(0).expand(B, -1).clone()  # [B, num_optim_tokens]
         target_labels_t = torch.zeros(B, device=self.device, dtype=torch.long)
@@ -638,6 +608,8 @@ class BERTGCGOptimizer:
 
             input_embeds[b].zero_()
             input_embeds[b, :input_len] = self.embedding_layer(toks["input_ids"])[0]
+            slot_input_ids[b].zero_()
+            slot_input_ids[b, :input_len] = toks["input_ids"][0]
 
             # Mask: 1 for input + suffix positions, 0 for trailing padding
             full_attention_mask[b].zero_()
@@ -785,14 +757,19 @@ class BERTGCGOptimizer:
                 is_eval = slot_steps[b] % self.config.eval_steps == 0 or slot_steps[b] >= self.config.num_steps
 
                 if is_eval:
-                    cur_suffix = self.tokenizer.decode(optim_ids[b], skip_special_tokens=True)
-                    full_text = slot_input_texts[b] + " " + cur_suffix
-                    verify_inputs = self.tokenizer(
-                        full_text, return_tensors="pt", truncation=True, max_length=512,
-                    ).to(self.device)
+                    # Verify by concatenating token IDs directly (matches optimization)
+                    L = slot_input_lengths[b]
+                    verify_ids = torch.cat([
+                        slot_input_ids[b, :L].unsqueeze(0),
+                        optim_ids[b].unsqueeze(0),
+                    ], dim=1)
+                    verify_mask = torch.ones_like(verify_ids, dtype=torch.float)
                     with torch.inference_mode():
-                        v_out = self.model(**verify_inputs)
-                        v_logits = v_out[0] if isinstance(v_out, tuple) else (v_out.logits if hasattr(v_out, 'logits') else v_out)
+                        v_logits = forward_with_embeds(
+                            self.model, self.model_type,
+                            self.embedding_layer(verify_ids),
+                            verify_mask,
+                        )
                         v_pred = v_logits.argmax(dim=1).item()
 
                     if v_pred == slot_target_labels[b]:
@@ -1127,19 +1104,23 @@ if __name__ == "__main__":
     loaded = torch.load(args.output, weights_only=False)
     verify_pass = 0
     verify_fail = 0
+    embedding_layer = get_word_embeddings(model, args.model_type)
     for entry in loaded:
         if not entry["succeeded"]:
             continue
-        full_text = entry["input_text"] + " " + entry["suffix_text"]
-        inputs = tokenizer(full_text, return_tensors="pt", truncation=True, max_length=512).to(DEVICE)
+        # Verify using token ID concatenation (matches optimization)
+        input_toks = tokenizer(
+            entry["input_text"], return_tensors="pt", truncation=True,
+            max_length=512 - 20, add_special_tokens=True,
+        ).to(DEVICE)
+        verify_ids = torch.cat([input_toks["input_ids"], entry["suffix_ids"].unsqueeze(0).to(DEVICE)], dim=1)
+        verify_mask = torch.ones_like(verify_ids, dtype=torch.float)
         with torch.inference_mode():
-            outputs = model(**inputs)
-            if isinstance(outputs, tuple):
-                logits = outputs[0]
-            elif hasattr(outputs, 'logits'):
-                logits = outputs.logits
-            else:
-                logits = outputs
+            logits = forward_with_embeds(
+                model, args.model_type,
+                embedding_layer(verify_ids),
+                verify_mask,
+            )
             pred = logits.argmax(dim=1).item()
         if pred == entry["target_label"]:
             verify_pass += 1
