@@ -520,6 +520,7 @@ class BERTGCGOptimizer:
         self,
         all_examples: list[tuple[str, int]],
         batch_size: int = 8,
+        on_example_complete=None,
     ) -> list[dict]:
         """Optimize adversarial suffixes with dynamic slot refilling.
 
@@ -631,6 +632,8 @@ class BERTGCGOptimizer:
             }
             status = "SUCCESS" if succeeded else "TIMEOUT"
             print(f"  [{status}] Example {idx} after {slot_steps[b]} steps | suffix: {suffix[:60]}...")
+            if on_example_complete is not None:
+                on_example_complete(idx, results[idx])
             fill_slot(b)
 
         # ========== Fill initial batch ========== #
@@ -1065,29 +1068,12 @@ if __name__ == "__main__":
     # Build full queue of (input_text, target_label) pairs
     all_attack_examples = [(text, 1 - orig_pred) for text, orig_pred in attack_examples]
 
-    try:
-        results_list = optimizer.step_batched(all_attack_examples, batch_size=args.batch_size)
-    except Exception as e:
-        print(f"Attack failed: {e}")
-        import traceback; traceback.print_exc()
-        results_list = [None] * total_attacked
-
-    # Final verification and summary
-    num_succ = 0
-    for i, result in enumerate(results_list):
-        if result is not None and result["succeeded"]:
-            num_succ += 1
-
-    print(f"\nTotal successful attacks: {num_succ} / {total_attacked}")
-
-    # --- 5. SAVE RESULTS ---
+    # Incremental save: write results to disk after each example completes
     save_data = []
-    for i, (input_text, orig_pred) in enumerate(attack_examples):
-        result = results_list[i]
-        if result is None:
-            continue
+    def _on_complete(idx, result):
+        input_text, orig_pred = attack_examples[idx]
         save_data.append({
-            "example_idx": i,
+            "example_idx": idx,
             "input_text": input_text,
             "original_label": orig_pred,
             "target_label": 1 - orig_pred,
@@ -1096,8 +1082,21 @@ if __name__ == "__main__":
             "succeeded": result["succeeded"],
             "steps": result["steps"],
         })
+        torch.save(save_data, args.output)
 
-    torch.save(save_data, args.output)
+    try:
+        results_list = optimizer.step_batched(
+            all_attack_examples, batch_size=args.batch_size,
+            on_example_complete=_on_complete,
+        )
+    except Exception as e:
+        print(f"Attack failed: {e}")
+        import traceback; traceback.print_exc()
+        results_list = [None] * total_attacked
+
+    # Final summary
+    num_succ = sum(1 for e in save_data if e["succeeded"])
+    print(f"\nTotal successful attacks: {num_succ} / {total_attacked}")
     print(f"Saved {len(save_data)} results to {args.output}")
 
     # --- 6. VERIFY SAVED FILE ---
