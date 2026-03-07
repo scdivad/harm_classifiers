@@ -1,0 +1,17 @@
+# Model artifacts to download from W&B.
+# Format: artifact_path [local_dir]
+#
+# artifact_path can be:
+#   - Full:  entity/project/name:version
+#   - Short: name (uses default project, :latest version)
+#
+# local_dir is optional (defaults to models/<artifact_name>).
+
+# Harm classifiers (aegis)
+#bert_harm_binary       models/bert_harm_binary
+#bert_obfus_binary      models/bert_obfus_binary
+#roberta_harm_binary    models/roberta_harm_binary
+#roberta_obfus_binary   models/roberta_obfus_binary
+#deberta_harm_binary    models/deberta_harm_binary
+#deberta_obfus_binary   models/deberta_obfus_binary
+davidsc2-university-of-illinois-urbana-champaign/distilbert-lat-surgery-ideas-aegis/aegis_l2_distilbert-lat_b32_ep10_1_g45.0c18.0_2_g55.0c25.0_3_60.0_frzsurg-m0a0h5wm1_s10-Adam:v0

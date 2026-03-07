@@ -1,0 +1,13 @@
+# GCG attack job definitions
+# Format: model_dir  model_type  dataset  output  [batch_size]  [search_width]
+# Lines starting with # are ignored. Blank lines are ignored.
+# batch_size defaults to 8, search_width defaults to 2048.
+
+#models/bert_harm_binary       bert    datasets/aegis   gcg_results/bert_harm.pt
+#models/bert_obfus_binary      bert    datasets/obfus   gcg_results/bert_obfus.pt
+#models/roberta_harm_binary    roberta datasets/aegis   gcg_results/roberta_harm.pt
+#models/roberta_obfus_binary   roberta datasets/obfus   gcg_results/roberta_obfus.pt
+#models/deberta_obfus_binary   deberta datasets/obfus   gcg_results/deberta_obfus.pt
+
+models/deberta_harm_binary    deberta datasets/aegis   gcg_results/deberta_harm.pt 
+/home/dcheung2/new/safe/sbert_combined_binary sbert datasets/aegis gcg_results/sbert_harm.pt 

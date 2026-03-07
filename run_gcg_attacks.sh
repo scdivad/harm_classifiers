@@ -1,29 +1,40 @@
 #!/bin/bash
-# Submit SLURM jobs to run GCG attacks on all 6 harm classifier models.
-# Assumes download_models.py has been run (models in models/).
-# Usage: bash run_gcg_attacks.sh
+# Submit SLURM jobs to run GCG attacks, then aggregate results.
+# Reads job definitions from a config file (one job per line).
+#
+# Usage:
+#   bash run_gcg_attacks.sh                  # uses gcg_jobs.txt
+#   bash run_gcg_attacks.sh my_jobs.txt      # uses custom file
 
+JOBS_FILE="${1:-gcg_jobs.txt}"
 SCRIPT="gcg.py"
 WORKDIR="$(pwd)"
 
-# Model dir, model_type, dataset, output file
-JOBS=(
-    "models/bert_harm_binary       bert    datasets/aegis   gcg_results/bert_harm.pt"
-    "models/bert_obfus_binary      bert    datasets/obfus   gcg_results/bert_obfus.pt"
-    "models/roberta_harm_binary    roberta datasets/aegis   gcg_results/roberta_harm.pt"
-    "models/roberta_obfus_binary   roberta datasets/obfus   gcg_results/roberta_obfus.pt"
-    "models/deberta_harm_binary    deberta datasets/aegis   gcg_results/deberta_harm.pt"
-    "models/deberta_obfus_binary   deberta datasets/obfus   gcg_results/deberta_obfus.pt"
-)
+if [ ! -f "${JOBS_FILE}" ]; then
+    echo "Error: jobs file '${JOBS_FILE}' not found"
+    echo "Usage: bash run_gcg_attacks.sh [jobs_file]"
+    exit 1
+fi
 
 mkdir -p logs gcg_results
 
-for entry in "${JOBS[@]}"; do
-    read -r MODEL_DIR MODEL_TYPE DATASET OUTPUT <<< "${entry}"
+JOB_IDS=()
+
+while IFS= read -r line || [ -n "$line" ]; do
+    # Skip comments and blank lines
+    [[ "$line" =~ ^[[:space:]]*# ]] && continue
+    [[ -z "${line// }" ]] && continue
+
+    read -r MODEL_DIR MODEL_TYPE DATASET OUTPUT BATCH_SIZE SEARCH_WIDTH <<< "${line}"
+
+    # Defaults
+    BATCH_SIZE="${BATCH_SIZE:-8}"
+    SEARCH_WIDTH="${SEARCH_WIDTH:-2048}"
+
     NAME="gcg_$(basename ${MODEL_DIR})"
-    BATCH_SIZE=8
-    echo "Submitting ${NAME} (batch_size=${BATCH_SIZE})"
-    sbatch <<EOF
+    echo "Submitting ${NAME} (batch_size=${BATCH_SIZE}, search_width=${SEARCH_WIDTH})"
+
+    JOB_ID=$(sbatch --parsable <<EOF
 #!/bin/bash
 #SBATCH --partition=nairr-gpu-shared
 #SBATCH --account=ddp477
@@ -31,7 +42,7 @@ for entry in "${JOBS[@]}"; do
 #SBATCH --nodes=1
 #SBATCH --mem=32G
 #SBATCH --gpus=1
-#SBATCH -t 2:00:00
+#SBATCH -t 24:00:00
 #SBATCH --job-name=${NAME}
 #SBATCH --output=logs/${NAME}_%j.out
 
@@ -41,12 +52,48 @@ eval "\$(conda shell.bash hook)"
 conda activate focal
 cd ${WORKDIR}
 
-python ${SCRIPT} \\
+python -u ${SCRIPT} \\
     --base_model_dir "${MODEL_DIR}" \\
     --model_type "${MODEL_TYPE}" \\
     --dataset_path "${DATASET}" \\
     --output "${OUTPUT}" \\
     --num_examples 100 \\
-    --batch_size ${BATCH_SIZE}
+    --batch_size ${BATCH_SIZE} \\
+    --search_width ${SEARCH_WIDTH}
 EOF
-done
+    )
+
+    echo "  -> Job ID: ${JOB_ID}"
+    JOB_IDS+=("${JOB_ID}")
+
+done < "${JOBS_FILE}"
+
+# Submit aggregation job that runs after all attack jobs finish
+if [ ${#JOB_IDS[@]} -gt 0 ]; then
+    DEP_STR=$(IFS=:; echo "${JOB_IDS[*]}")
+    echo ""
+    echo "Submitting aggregation job (depends on: ${DEP_STR})"
+
+    sbatch --parsable --dependency=afterany:${DEP_STR} <<EOF
+#!/bin/bash
+#SBATCH --partition=nairr-gpu-shared
+#SBATCH --account=ddp477
+#SBATCH --ntasks-per-node=1
+#SBATCH --nodes=1
+#SBATCH --mem=4G
+#SBATCH -t 00:05:00
+#SBATCH --job-name=gcg_aggregate
+#SBATCH --output=logs/gcg_aggregate_%j.out
+
+module load cpu/0.15.4
+module load anaconda3/2020.11
+eval "\$(conda shell.bash hook)"
+conda activate focal
+cd ${WORKDIR}
+
+python -u inspect_gcg_results.py
+EOF
+    echo "All jobs submitted."
+else
+    echo "No jobs submitted."
+fi
