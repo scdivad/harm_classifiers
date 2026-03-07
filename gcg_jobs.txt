@@ -9,5 +9,6 @@
 #models/roberta_obfus_binary   roberta datasets/obfus   gcg_results/roberta_obfus.pt
 #models/deberta_obfus_binary   deberta datasets/obfus   gcg_results/deberta_obfus.pt
 
-models/deberta_harm_binary    deberta datasets/aegis   gcg_results/deberta_harm.pt 
-/home/dcheung2/new/safe/sbert_combined_binary sbert datasets/aegis gcg_results/sbert_harm.pt 
+models/deberta_harm_binary    deberta datasets/aegis   gcg_results/deberta_harm.pt
+/home/dcheung2/new/safe/sbert_combined_binary sbert datasets/aegis gcg_results/sbert_harm.pt
+/home/dcheung2/new/safe/aegis_l2_distilbert-lat_b32_ep10_1_g45.0c18.0_2_g55.0c25.0_3_60.0_frzsurg-m0a0h5wm1_s10-Adam:v0 sbert datasets/aegis gcg_results/sbert_lat_harm.pt

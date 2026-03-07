@@ -52,14 +52,15 @@ eval "\$(conda shell.bash hook)"
 conda activate focal
 cd ${WORKDIR}
 
+set -x
 python -u ${SCRIPT} \\
     --base_model_dir "${MODEL_DIR}" \\
     --model_type "${MODEL_TYPE}" \\
     --dataset_path "${DATASET}" \\
     --output "${OUTPUT}" \\
     --num_examples 100 \\
-    --batch_size ${BATCH_SIZE} \\
-    --search_width ${SEARCH_WIDTH}
+    --batch_size "${BATCH_SIZE}" \\
+    --search_width "${SEARCH_WIDTH}"
 EOF
     )
 
@@ -81,6 +82,7 @@ if [ ${#JOB_IDS[@]} -gt 0 ]; then
 #SBATCH --ntasks-per-node=1
 #SBATCH --nodes=1
 #SBATCH --mem=4G
+#SBATCH --gpus=1
 #SBATCH -t 00:05:00
 #SBATCH --job-name=gcg_aggregate
 #SBATCH --output=logs/gcg_aggregate_%j.out
