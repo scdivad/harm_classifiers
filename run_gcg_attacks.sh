@@ -52,15 +52,7 @@ eval "\$(conda shell.bash hook)"
 conda activate focal
 cd ${WORKDIR}
 
-set -x
-python -u ${SCRIPT} \\
-    --base_model_dir "${MODEL_DIR}" \\
-    --model_type "${MODEL_TYPE}" \\
-    --dataset_path "${DATASET}" \\
-    --output "${OUTPUT}" \\
-    --num_examples 100 \\
-    --batch_size "${BATCH_SIZE}" \\
-    --search_width "${SEARCH_WIDTH}"
+python -u ${SCRIPT} --base_model_dir "${MODEL_DIR}" --model_type "${MODEL_TYPE}" --dataset_path "${DATASET}" --output "${OUTPUT}" --num_examples 100 --batch_size "${BATCH_SIZE}" --search_width "${SEARCH_WIDTH}"
 EOF
     )
 
