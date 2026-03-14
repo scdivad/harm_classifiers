@@ -1,38 +1,34 @@
 #!/bin/bash
-# Submit SLURM jobs to run GCG attacks, then aggregate results.
-# Reads job definitions from a config file (one job per line).
-#
-# Usage:
-#   bash run_gcg_attacks.sh                  # uses gcg_jobs.txt
-#   bash run_gcg_attacks.sh my_jobs.txt      # uses custom file
+# Submit SLURM jobs for GCG attacks with 5 random restarts on aegis dataset.
+# Then submit an aggregation job to analyze per-restart ASR.
+set -x
 
-JOBS_FILE="${1:-gcg_jobs.txt}"
 SCRIPT="gcg.py"
 WORKDIR="$(pwd)"
-
-if [ ! -f "${JOBS_FILE}" ]; then
-    echo "Error: jobs file '${JOBS_FILE}' not found"
-    echo "Usage: bash run_gcg_attacks.sh [jobs_file]"
-    exit 1
-fi
+DATASET="datasets/aegis"
+NUM_RESTARTS=5
+BATCH_SIZE=8
+SEARCH_WIDTH=2048
+NUM_EXAMPLES=100
 
 mkdir -p logs gcg_results
 
+# Define the 4 models (model_dir  model_type  output_name)
+declare -a MODELS=(
+    "models/bert_harm_binary|bert|bert_harm_r5"
+    "models/roberta_harm_binary|roberta|roberta_harm_r5"
+    "models/deberta_harm_binary|deberta|deberta_harm_r5"
+    "models/sbert_combined_binary|sbert|sbert_lat_harm_r5"
+)
+
 JOB_IDS=()
 
-while IFS= read -r line || [ -n "$line" ]; do
-    # Skip comments and blank lines
-    [[ "$line" =~ ^[[:space:]]*# ]] && continue
-    [[ -z "${line// }" ]] && continue
+for entry in "${MODELS[@]}"; do
+    IFS='|' read -r MODEL_DIR MODEL_TYPE OUTPUT_NAME <<< "${entry}"
+    OUTPUT="gcg_results/${OUTPUT_NAME}.pt"
+    NAME="gcg_${OUTPUT_NAME}"
 
-    read -r MODEL_DIR MODEL_TYPE DATASET OUTPUT BATCH_SIZE SEARCH_WIDTH <<< "${line}"
-
-    # Defaults
-    BATCH_SIZE="${BATCH_SIZE:-8}"
-    SEARCH_WIDTH="${SEARCH_WIDTH:-2048}"
-
-    NAME="gcg_$(basename ${MODEL_DIR})"
-    echo "Submitting ${NAME} (batch_size=${BATCH_SIZE}, search_width=${SEARCH_WIDTH})"
+    echo "Submitting ${NAME}: ${MODEL_DIR} (${MODEL_TYPE})"
 
     JOB_ID=$(sbatch --parsable <<EOF
 #!/bin/bash
@@ -42,7 +38,7 @@ while IFS= read -r line || [ -n "$line" ]; do
 #SBATCH --nodes=1
 #SBATCH --mem=32G
 #SBATCH --gpus=1
-#SBATCH -t 24:00:00
+#SBATCH -t 48:00:00
 #SBATCH --job-name=${NAME}
 #SBATCH --output=logs/${NAME}_%j.out
 
@@ -52,16 +48,23 @@ eval "\$(conda shell.bash hook)"
 conda activate focal
 cd ${WORKDIR}
 
-python -u ${SCRIPT} --base_model_dir "${MODEL_DIR}" --model_type "${MODEL_TYPE}" --dataset_path "${DATASET}" --output "${OUTPUT}" --num_examples 100 --batch_size "${BATCH_SIZE}" --search_width "${SEARCH_WIDTH}"
+python -u ${SCRIPT} \
+    --base_model_dir "${MODEL_DIR}" \
+    --model_type "${MODEL_TYPE}" \
+    --dataset_path "${DATASET}" \
+    --output "${OUTPUT}" \
+    --num_examples ${NUM_EXAMPLES} \
+    --batch_size ${BATCH_SIZE} \
+    --search_width ${SEARCH_WIDTH} \
+    --num_restarts ${NUM_RESTARTS}
 EOF
     )
 
     echo "  -> Job ID: ${JOB_ID}"
     JOB_IDS+=("${JOB_ID}")
+done
 
-done < "${JOBS_FILE}"
-
-# Submit aggregation job that runs after all attack jobs finish
+# Submit aggregation job after all attacks finish
 if [ ${#JOB_IDS[@]} -gt 0 ]; then
     DEP_STR=$(IFS=:; echo "${JOB_IDS[*]}")
     echo ""
@@ -74,10 +77,9 @@ if [ ${#JOB_IDS[@]} -gt 0 ]; then
 #SBATCH --ntasks-per-node=1
 #SBATCH --nodes=1
 #SBATCH --mem=4G
-#SBATCH --gpus=1
 #SBATCH -t 00:05:00
-#SBATCH --job-name=gcg_aggregate
-#SBATCH --output=logs/gcg_aggregate_%j.out
+#SBATCH --job-name=gcg_restart_analysis
+#SBATCH --output=logs/gcg_restart_analysis_%j.out
 
 module load cpu/0.15.4
 module load anaconda3/2020.11
@@ -85,7 +87,7 @@ eval "\$(conda shell.bash hook)"
 conda activate focal
 cd ${WORKDIR}
 
-python -u inspect_gcg_results.py
+python -u analyze_restarts.py --pattern "gcg_results/*_r5.pt" --num_restarts ${NUM_RESTARTS}
 EOF
     echo "All jobs submitted."
 else
