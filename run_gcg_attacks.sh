@@ -1,12 +1,12 @@
 #!/bin/bash
 # Submit SLURM jobs for GCG attacks with 5 random restarts on aegis dataset.
 # Then submit an aggregation job to analyze per-restart ASR.
-set -x
+# set -x
 
 SCRIPT="gcg.py"
 WORKDIR="$(pwd)"
 DATASET="datasets/aegis"
-NUM_RESTARTS=5
+NUM_RESTARTS=3
 BATCH_SIZE=8
 SEARCH_WIDTH=2048
 NUM_EXAMPLES=100
@@ -38,7 +38,7 @@ for entry in "${MODELS[@]}"; do
 #SBATCH --nodes=1
 #SBATCH --mem=32G
 #SBATCH --gpus=1
-#SBATCH -t 48:00:00
+#SBATCH -t 10:00:00
 #SBATCH --job-name=${NAME}
 #SBATCH --output=logs/${NAME}_%j.out
 
@@ -77,6 +77,7 @@ if [ ${#JOB_IDS[@]} -gt 0 ]; then
 #SBATCH --ntasks-per-node=1
 #SBATCH --nodes=1
 #SBATCH --mem=4G
+#SBATCH --gpus=1
 #SBATCH -t 00:05:00
 #SBATCH --job-name=gcg_restart_analysis
 #SBATCH --output=logs/gcg_restart_analysis_%j.out

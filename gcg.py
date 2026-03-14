@@ -17,7 +17,7 @@ from transformers import AutoTokenizer, AutoModelForSequenceClassification
 from safetensors.torch import load_file
 
 # ---- Import canonical GCG implementation ----
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'freeze-lat', 'attacks'))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'ibp_huggingface', 'attacks'))
 from gcg_fast import (  # noqa: E402
     SBERTwithClassifier,
     BERTGCGConfig,
