@@ -133,6 +133,8 @@ if __name__ == "__main__":
                         help="Enable verbose debug output")
     parser.add_argument("--output", type=str, default="gcg_results.pt",
                         help="Path to save attack results")
+    parser.add_argument("--resume", action="store_true",
+                        help="Resume from existing output file, skip completed examples")
     args = parser.parse_args()
 
     print(f"Loading model from {args.base_model_dir} (type={args.model_type})")
@@ -190,33 +192,48 @@ if __name__ == "__main__":
 
     all_attack_examples = [(text, 1 - orig_pred) for text, orig_pred in attack_examples]
 
-    # Incremental save: write results to disk after each example completes
+    # --- Resume: load existing results and skip completed examples ---
     save_data = []
+    done_indices = set()
+    if args.resume and os.path.exists(args.output):
+        save_data = torch.load(args.output, weights_only=False)
+        done_indices = {e["example_idx"] for e in save_data}
+        print(f"Resuming: {len(done_indices)} examples already completed, skipping them.")
 
-    def _on_complete(idx, result):
-        input_text, orig_pred = attack_examples[idx]
-        save_data.append({
-            "example_idx": idx,
-            "input_text": input_text,
-            "original_label": orig_pred,
-            "target_label": 1 - orig_pred,
-            "suffix_ids": result["best_ids"].cpu(),
-            "suffix_text": result["best_suffix"],
-            "succeeded": result["succeeded"],
-            "steps": result["steps"],
-            "restart": result.get("restart", 0),
-        })
-        torch.save(save_data, args.output)
+    remaining_indices = [i for i in range(len(all_attack_examples)) if i not in done_indices]
+    remaining_examples = [all_attack_examples[i] for i in remaining_indices]
+    print(f"Attacking {len(remaining_examples)} remaining examples.")
 
-    try:
-        results_list = optimizer.step_batched(
-            all_attack_examples, batch_size=args.batch_size,
-            on_example_complete=_on_complete,
-        )
-    except Exception as e:
-        print(f"Attack failed: {e}")
-        import traceback; traceback.print_exc()
-        results_list = [None] * total_attacked
+    if not remaining_examples:
+        print("All examples already completed.")
+        results_list = []
+    else:
+        # Map step_batched indices back to original indices
+        def _on_complete(idx, result):
+            orig_idx = remaining_indices[idx]
+            input_text, orig_pred = attack_examples[orig_idx]
+            save_data.append({
+                "example_idx": orig_idx,
+                "input_text": input_text,
+                "original_label": orig_pred,
+                "target_label": 1 - orig_pred,
+                "suffix_ids": result["best_ids"].cpu(),
+                "suffix_text": result["best_suffix"],
+                "succeeded": result["succeeded"],
+                "steps": result["steps"],
+                "restart": result.get("restart", 0),
+            })
+            torch.save(save_data, args.output)
+
+        try:
+            results_list = optimizer.step_batched(
+                remaining_examples, batch_size=args.batch_size,
+                on_example_complete=_on_complete,
+            )
+        except Exception as e:
+            print(f"Attack failed: {e}")
+            import traceback; traceback.print_exc()
+            results_list = [None] * len(remaining_examples)
 
     # Final summary
     num_succ = sum(1 for e in save_data if e["succeeded"])

@@ -18,7 +18,7 @@ declare -a MODELS=(
     "models/bert_harm_binary|bert|bert_harm_r5"
     "models/roberta_harm_binary|roberta|roberta_harm_r5"
     "models/deberta_harm_binary|deberta|deberta_harm_r5"
-    "models/sbert_combined_binary|sbert|sbert_lat_harm_r5"
+    "models/sbert_combined_binary|sbert|sbert_harm_r5"
 )
 
 JOB_IDS=()
@@ -56,7 +56,8 @@ python -u ${SCRIPT} \
     --num_examples ${NUM_EXAMPLES} \
     --batch_size ${BATCH_SIZE} \
     --search_width ${SEARCH_WIDTH} \
-    --num_restarts ${NUM_RESTARTS}
+    --num_restarts ${NUM_RESTARTS} \
+    --resume
 EOF
     )
 

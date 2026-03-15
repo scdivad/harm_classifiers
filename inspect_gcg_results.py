@@ -1,64 +1,92 @@
-"""Inspect GCG attack results across all models.
+"""Inspect all .pt files in gcg_results/ — show format, counts, and key fields.
 
-Auto-discovers all .pt files in gcg_results/ and prints a summary table.
-Also saves the table to gcg_results/summary.txt.
+Helps distinguish old runs from new ones by showing modification time,
+schema (keys), restart/step counts, and example index ranges.
 """
 import glob
 import os
-import sys
 import torch
+from datetime import datetime
 
 RESULTS_DIR = os.environ.get("GCG_RESULTS_DIR", "gcg_results")
-OUTPUT_FILE = os.path.join(RESULTS_DIR, "summary.txt")
+pt_files = sorted(glob.glob(os.path.join(RESULTS_DIR, "*.pt")))
 
-files = sorted(glob.glob(os.path.join(RESULTS_DIR, "*.pt")))
-
-if not files:
+if not pt_files:
     print(f"No .pt files found in {RESULTS_DIR}/")
-    sys.exit(0)
+    exit()
 
-lines = []
-def out(s=""):
-    print(s)
-    lines.append(s)
-
-header = f"{'Model':<25} {'Total':>6} {'Succ':>6} {'Fail':>6} {'ASR':>8} {'Avg Steps':>10}"
-out(header)
-out("-" * len(header))
-
-for path in files:
+for path in pt_files:
     fname = os.path.basename(path)
-    name = fname.replace(".pt", "")
+    mtime = datetime.fromtimestamp(os.path.getmtime(path)).strftime("%Y-%m-%d %H:%M")
+    size_kb = os.path.getsize(path) / 1024
 
-    data = torch.load(path, weights_only=False)
-    if not data:
-        out(f"{name:<25} {'(empty)':>6}")
+    print(f"\n{'='*70}")
+    print(f"{fname}  ({size_kb:.0f} KB, modified {mtime})")
+    print(f"{'='*70}")
+
+    try:
+        data = torch.load(path, weights_only=False, map_location="cpu")
+    except Exception as e:
+        print(f"  FAILED TO LOAD: {e}")
         continue
 
-    total = len(data)
-    succeeded = sum(1 for e in data if e.get("succeeded", False))
-    failed = total - succeeded
-    asr = succeeded / total if total > 0 else 0
-    avg_steps = sum(e.get("steps", 0) for e in data) / total if total > 0 else 0
+    if isinstance(data, list):
+        print(f"  Type: list of {len(data)} entries")
+        if len(data) == 0:
+            print("  (empty)")
+            continue
 
-    out(f"{name:<25} {total:>6} {succeeded:>6} {failed:>6} {asr:>7.1%} {avg_steps:>10.1f}")
+        first = data[0]
+        if isinstance(first, dict):
+            print(f"  Keys: {list(first.keys())}")
 
-    succ_examples = [e for e in data if e.get("succeeded", False)]
-    fail_examples = [e for e in data if not e.get("succeeded", False)]
+            # Succeeded / failed
+            n_succ = sum(1 for e in data if e.get("succeeded", False))
+            n_fail = len(data) - n_succ
+            print(f"  Succeeded: {n_succ}/{len(data)}  (ASR={n_succ/len(data):.4f})")
+            print(f"  Failed:    {n_fail}/{len(data)}  (Robust acc={n_fail/len(data):.4f})")
 
-    if succ_examples:
-        e = succ_examples[0]
-        suffix = e.get("suffix_text", "")[:60]
-        text = (e.get("input_text", ""))[:60]
-        out(f"  Success: \"{text}...\" + \"{suffix}...\" ({e.get('steps', '?')} steps)")
+            # Restart info
+            if "restart" in first:
+                restarts = [e.get("restart", 0) for e in data]
+                print(f"  Restarts: min={min(restarts)}, max={max(restarts)}, mean={sum(restarts)/len(restarts):.1f}")
 
-    if fail_examples:
-        e = fail_examples[0]
-        text = (e.get("input_text", ""))[:60]
-        out(f"  Fail:    \"{text}...\" ({e.get('steps', '?')} steps)")
+            # Steps info
+            if "steps" in first:
+                steps = [e.get("steps", 0) for e in data]
+                print(f"  Steps: min={min(steps)}, max={max(steps)}, mean={sum(steps)/len(steps):.1f}")
 
-out()
+            # Example index range
+            if "example_idx" in first:
+                idxs = [e["example_idx"] for e in data]
+                print(f"  Example indices: {min(idxs)}..{max(idxs)} ({len(set(idxs))} unique out of {len(idxs)} entries)")
 
-with open(OUTPUT_FILE, "w") as f:
-    f.write("\n".join(lines) + "\n")
-print(f"Summary saved to {OUTPUT_FILE}")
+            # Other identifying fields
+            for key in ["model_type", "status", "dataset_idx"]:
+                if key in first:
+                    vals = set(e.get(key) for e in data)
+                    print(f"  {key}: {vals}")
+
+            # Sample entry
+            print(f"\n  Sample entry (first):")
+            for k, v in first.items():
+                if isinstance(v, torch.Tensor):
+                    print(f"    {k}: Tensor shape={v.shape}, dtype={v.dtype}")
+                elif isinstance(v, str) and len(v) > 80:
+                    print(f"    {k}: '{v[:80]}...'")
+                else:
+                    print(f"    {k}: {v}")
+        else:
+            print(f"  Entry type: {type(first)}")
+
+    elif isinstance(data, dict):
+        print(f"  Type: dict with keys {list(data.keys())}")
+        for k, v in data.items():
+            if isinstance(v, torch.Tensor):
+                print(f"    {k}: Tensor shape={v.shape}, dtype={v.dtype}")
+            elif isinstance(v, list):
+                print(f"    {k}: list of {len(v)} items")
+            else:
+                print(f"    {k}: {type(v).__name__} = {v}")
+    else:
+        print(f"  Type: {type(data)}")
