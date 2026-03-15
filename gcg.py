@@ -184,6 +184,7 @@ if __name__ == "__main__":
         num_restarts=args.num_restarts,
         verbose=args.verbose,
         oom_resilient_eval=True,
+        early_stop=False,
     )
     optimizer = BERTGCGOptimizer(model, tokenizer, config, DEVICE)
 
