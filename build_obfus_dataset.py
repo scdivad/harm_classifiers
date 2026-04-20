@@ -14,10 +14,17 @@ Labels are binary (1 = harmful, 0 = benign). Unlike aegis, obfus does NOT
 require per-model carving — the source already ships a val split, so all 4
 classifiers share the same obfus dataset.
 
-The 'text' field is `prompt + "\n" + response`, matching the format used by
-the existing {sbert,bert,roberta,deberta}_obfus_binary models on SDSC. This
-is also the native (prompt, response) pairing that the obfuscated-activations
-repo hands to its probes.
+The 'text' field is "User: {prompt}\n\nAssistant: {response}". This preserves
+the user/assistant role semantics that the Llama-3 chat template exposes to
+probes in the source obfuscated-activations repo (where prompts go through
+apply_chat_template as {"role": "user", ...} and responses are appended as
+assistant target tokens), but in a plain-text form that BERT-family
+tokenizers can handle without special-token surgery.
+
+NOTE for future GCG/attack work on these classifiers: the adversarially
+controllable region is the prompt, not the whole text. Adversarial suffixes
+should be injected BEFORE the "\n\nAssistant: " boundary, not appended to
+the full string.
 
 Usage:
     python harm_classifiers/build_obfus_dataset.py \\
@@ -39,7 +46,8 @@ def load_split(label_name: str, split: str) -> pd.DataFrame:
     path = os.path.join(SRC, f"{label_name}_{split}_no_spec_tokens.csv")
     df = pd.read_csv(path)
     out = pd.DataFrame({
-        "text": df["prompt"].astype(str) + "\n" + df["response"].astype(str),
+        "text": ("User: " + df["prompt"].astype(str)
+                 + "\n\nAssistant: " + df["response"].astype(str)),
         "label": 1 if label_name == "harmful" else 0,
     })
     return out
