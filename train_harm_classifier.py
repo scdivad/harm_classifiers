@@ -15,8 +15,12 @@ from transformers import (
     Trainer,
 )
 
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                                '..', 'freeze-lat', 'sbert'))
+_here = os.path.dirname(os.path.abspath(__file__))
+for _cand in (os.path.join(_here, '..', 'freeze-lat', 'sbert'),
+              os.path.join(_here, '..', 'ibp_huggingface', 'sbert')):
+    if os.path.exists(os.path.join(_cand, 'SBERTwithClassifier.py')):
+        sys.path.insert(0, _cand)
+        break
 from SBERTwithClassifier import SBERTwithClassifier
 
 LABEL_NAMES = [
