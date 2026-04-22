@@ -150,6 +150,11 @@ def main():
         "l2_suffix_per_pos_max": [],
         "l2_content_global": [],
         "l2_content_per_pos_max": [],
+        # Clean-activation magnitudes (not a diff). Used for the lat_baseline_v2
+        # convention, which sets pos_cap as 5/10/20/50% of clean per-position L2.
+        "clean_per_pos_max": [],
+        "clean_per_pos_mean": [],
+        "clean_per_pos_median": [],
     } for k in keys}
     for d in target_dims:
         for k in keys:
@@ -209,6 +214,15 @@ def main():
                 torch.quantile(per_pos.float(), 0.9).item())
             stats[k]["l2_per_pos_median"].append(
                 torch.quantile(per_pos.float(), 0.5).item())
+
+            # Clean-only magnitudes, restricted to clean's active positions
+            # (drop padding). Per-position L2 of the clean hidden state.
+            clean_active = c[:clean_len]
+            clean_pp = clean_active.norm(p=2, dim=1)
+            stats[k]["clean_per_pos_max"].append(clean_pp.max().item())
+            stats[k]["clean_per_pos_mean"].append(clean_pp.mean().item())
+            stats[k]["clean_per_pos_median"].append(
+                torch.quantile(clean_pp.float(), 0.5).item())
 
             if suffix_start < active and suffix_end <= active:
                 suffix_diff = diff[suffix_start:suffix_end]
@@ -327,6 +341,23 @@ def main():
         med_pm = np.median(s["l2_per_pos_max"])
         p75_pm = np.percentile(s["l2_per_pos_max"], 75)
         print(f"  {lbl:<8} {med_g:>8.1f} {p75_g:>8.1f} {med_pm:>10.1f} {p75_pm:>10.1f}")
+
+    # ========== lat_baseline_v2 convention: pos_cap = %-of-clean ==========
+    # Values drop into pos_cap_layerN (with eps_layerN = -1 to disable global).
+    # Base = median clean per-position L2 magnitude. Tiers follow the
+    # aegis lat_baseline_v2 sweep family (sweeps/lat_baseline_v2/*.yaml).
+    print(f"\n{'='*90}")
+    print("POS_CAP TIERS (lat_baseline_v2 convention: % of median clean per-pos L2)")
+    print(f"{'='*90}")
+    print(f"  {'Layer':<8} {'CleanMed':>10} {'5pct':>7} {'10pct':>7} {'20pct':>7} {'50pct':>7}")
+    print(f"  {'─'*50}")
+    for k in keys:
+        s = stats[k]
+        lbl = f"L{k}" if isinstance(k, int) else "Embed"
+        base = np.median(s["clean_per_pos_median"])
+        print(f"  {lbl:<8} {base:>10.2f} "
+              f"{0.05 * base:>7.2f} {0.10 * base:>7.2f} "
+              f"{0.20 * base:>7.2f} {0.50 * base:>7.2f}")
 
 
 if __name__ == "__main__":
