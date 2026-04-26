@@ -21,12 +21,36 @@ declare -A HF_MODEL=(
     [bert]="bert-base-uncased"
     [roberta]="roberta-base"
     [deberta]="microsoft/deberta-v3-base"
+    [deberta_large]="microsoft/deberta-v3-large"
 )
 declare -A MODEL_TYPE=(
     [sbert]="sbert"
     [bert]="auto"
     [roberta]="auto"
     [deberta]="auto"
+    [deberta_large]="auto"
+)
+# Per-device batch size + grad accum (effective batch = 32 for all)
+declare -A BATCH_SIZE=(
+    [sbert]=32
+    [bert]=32
+    [roberta]=32
+    [deberta]=32
+    [deberta_large]=8
+)
+declare -A GRAD_ACCUM=(
+    [sbert]=1
+    [bert]=1
+    [roberta]=1
+    [deberta]=1
+    [deberta_large]=4
+)
+declare -A MEM=(
+    [sbert]=32G
+    [bert]=32G
+    [roberta]=32G
+    [deberta]=32G
+    [deberta_large]=64G
 )
 
 MODELS="${MODELS:-sbert bert roberta deberta}"
@@ -46,7 +70,7 @@ for SHORT in ${MODELS}; do
 #SBATCH --account=ddp477
 #SBATCH --ntasks-per-node=1
 #SBATCH --nodes=1
-#SBATCH --mem=32G
+#SBATCH --mem=${MEM[$SHORT]}
 #SBATCH --gpus=1
 #SBATCH -t 10:00:00
 #SBATCH --job-name=${NAME}
@@ -63,6 +87,8 @@ python ${SCRIPT} \\
     --model_type "${MODEL_TYPE[$SHORT]}" \\
     --dataset "${DATASET}" \\
     --save_dir "${WORKDIR}/models/${NAME}" \\
+    --batch_size ${BATCH_SIZE[$SHORT]} \\
+    --gradient_accumulation_steps ${GRAD_ACCUM[$SHORT]} \\
     --truncate_left false
 EOF
 done
