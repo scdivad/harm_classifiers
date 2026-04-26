@@ -1,11 +1,11 @@
 """Build an aegis_v2 dataset from nvidia/Aegis-AI-Content-Safety-Dataset-2.0.
 
-Label space (4-class):
+Label space (3-class):
     0 = (safe,   safe)    — benign prompt, safe response
-    1 = (safe,   unsafe)  — benign prompt, harmful response
-    2 = (unsafe, safe)    — harmful prompt, safe/refused response
-    3 = (unsafe, unsafe)  — harmful prompt, harmful response
+    1 = (unsafe, safe)    — harmful prompt, safe/refused response
+    2 = (unsafe, unsafe)  — harmful prompt, harmful response
 
+(safe, unsafe) is absent from Aegis 2.0, so it is omitted.
 Rows where response_label is None (prompt-only annotations) are dropped.
 Use the dataset's native train/validation/test splits directly — no carving.
 
@@ -25,12 +25,11 @@ from datasets import Dataset, DatasetDict, load_dataset
 
 LABEL_MAP = {
     ("safe",   "safe"):   0,
-    ("safe",   "unsafe"): 1,
-    ("unsafe", "safe"):   2,
-    ("unsafe", "unsafe"): 3,
+    ("unsafe", "safe"):   1,
+    ("unsafe", "unsafe"): 2,
 }
 
-LABEL_NAMES = ["safe_safe", "safe_unsafe", "unsafe_safe", "unsafe_unsafe"]
+LABEL_NAMES = ["safe_safe", "unsafe_safe", "unsafe_unsafe"]
 
 
 def process_split(split):

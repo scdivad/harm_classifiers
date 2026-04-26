@@ -23,7 +23,7 @@ for _cand in (os.path.join(_here, '..', 'freeze-lat', 'sbert'),
         break
 from SBERTwithClassifier import SBERTwithClassifier
 
-LABEL_NAMES = ["safe_safe", "safe_unsafe", "unsafe_safe", "unsafe_unsafe"]
+LABEL_NAMES = ["safe_safe", "unsafe_safe", "unsafe_unsafe"]
 
 DEFAULT_EPOCHS = 10
 DEFAULT_LEARNING_RATE = 1e-5
@@ -62,7 +62,7 @@ def compute_metrics(eval_pred):
     logits, labels = eval_pred
     preds = np.argmax(logits, axis=-1)
     acc = (preds == labels).mean()
-    # Collapse to binary: unsafe = label 1,2,3; safe = label 0
+    # Collapse to binary: unsafe = label 1,2; safe = label 0
     binary_preds = (preds != 0).astype(int)
     binary_labels = (labels != 0).astype(int)
     binary_acc = (binary_preds == binary_labels).mean()
