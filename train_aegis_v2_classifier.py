@@ -55,6 +55,8 @@ def get_args():
     parser.add_argument("--truncate_left", type=str, default="false",
                         choices=["true", "false"])
     parser.add_argument("--wandb_run_name", type=str, default=None)
+    parser.add_argument("--binary", action="store_true",
+                        help="Collapse to binary: safe_safe=0 vs all else=1")
     return parser.parse_args()
 
 
@@ -157,6 +159,13 @@ def main():
         train_sbert(args)
         return
 
+    if args.binary:
+        label_names = ["safe_safe", "unsafe"]
+        num_labels = 2
+    else:
+        label_names = LABEL_NAMES
+        num_labels = len(LABEL_NAMES)
+
     tokenizer = AutoTokenizer.from_pretrained(args.model)
 
     if args.truncate_left == "true":
@@ -165,13 +174,16 @@ def main():
 
     model = AutoModelForSequenceClassification.from_pretrained(
         args.model,
-        num_labels=len(LABEL_NAMES),
-        id2label={i: name for i, name in enumerate(LABEL_NAMES)},
-        label2id={name: i for i, name in enumerate(LABEL_NAMES)},
+        num_labels=num_labels,
+        id2label={i: name for i, name in enumerate(label_names)},
+        label2id={name: i for i, name in enumerate(label_names)},
     )
 
     dataset = load_from_disk(args.dataset)
     eval_split = "test" if "test" in dataset else "validation"
+
+    if args.binary:
+        dataset = dataset.map(lambda x: {"label": 0 if x["label"] == 0 else 1})
 
     def tokenize(batch):
         return tokenizer(

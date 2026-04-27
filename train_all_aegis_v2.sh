@@ -52,6 +52,8 @@ declare -A MEM=(
 )
 
 MODELS="${MODELS:-sbert bert roberta deberta}"
+# Set BINARY=1 to train binary (safe_safe vs all else) instead of 3-class
+BINARY="${BINARY:-0}"
 
 mkdir -p "${WORKDIR}/logs"
 
@@ -60,7 +62,13 @@ for SHORT in ${MODELS}; do
         echo "ERROR: unknown model '${SHORT}'. Options: ${!HF_MODEL[*]}" >&2
         exit 1
     fi
-    NAME="${SHORT}_aegis_v2"
+    if [[ "$BINARY" == "1" ]]; then
+        NAME="${SHORT}_aegis_v2_binary"
+        BINARY_FLAG="--binary"
+    else
+        NAME="${SHORT}_aegis_v2"
+        BINARY_FLAG=""
+    fi
     echo "Submitting ${NAME}"
     sbatch <<EOF
 #!/bin/bash
@@ -80,6 +88,8 @@ eval "\$(conda shell.bash hook)"
 conda activate focal
 cd ${WORKDIR}
 
+rm -rf "${WORKDIR}/models/${NAME}"
+
 python ${SCRIPT} \\
     --model "${HF_MODEL[$SHORT]}" \\
     --model_type "${MODEL_TYPE[$SHORT]}" \\
@@ -87,6 +97,6 @@ python ${SCRIPT} \\
     --save_dir "${WORKDIR}/models/${NAME}" \\
     --batch_size ${BATCH_SIZE[$SHORT]} \\
     --gradient_accumulation_steps ${GRAD_ACCUM[$SHORT]} \\
-    --truncate_left false
+    --truncate_left false ${BINARY_FLAG}
 EOF
 done
