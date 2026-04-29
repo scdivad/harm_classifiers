@@ -135,6 +135,10 @@ if __name__ == "__main__":
                         help="Path to save attack results")
     parser.add_argument("--resume", action="store_true",
                         help="Resume from existing output file, skip completed examples")
+    parser.add_argument("--split", type=str, default=None,
+                        help="Dataset split to attack (default: test, "
+                             "fallback to train). Set to 'attack_val' to "
+                             "target the carved attack validation set.")
     args = parser.parse_args()
 
     print(f"Loading model from {args.base_model_dir} (type={args.model_type})")
@@ -145,7 +149,13 @@ if __name__ == "__main__":
     dataset = load_from_disk(args.dataset_path)
     dataset = dataset.map(lambda x: {"label": 0 if x["label"] == 0 else 1})
 
-    if "test" in dataset:
+    if args.split:
+        if args.split not in dataset:
+            raise ValueError(f"Split '{args.split}' not found. "
+                             f"Available: {list(dataset.keys())}")
+        target_dataset = dataset[args.split]
+        print(f"Using split: {args.split}")
+    elif "test" in dataset:
         target_dataset = dataset["test"]
     else:
         print("Warning: No test split found, falling back to train.")
