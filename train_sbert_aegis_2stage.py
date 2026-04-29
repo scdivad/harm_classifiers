@@ -55,8 +55,8 @@ def get_args():
     p.add_argument("--stage2_epochs", type=int, default=10)
     p.add_argument("--stage2_lr", type=float, default=2e-5)
     p.add_argument("--stage2_batch", type=int, default=32)
-    p.add_argument("--stage2_freeze_backbone", action="store_true",
-                   help="Freeze the encoder during stage 2 (only train head).")
+    p.add_argument("--stage2_unfreeze_backbone", action="store_true",
+                   help="Unfreeze encoder in stage 2 (default: frozen, head-only).")
     p.add_argument("--max_length", type=int, default=512)
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--triplet_label_mode", choices=["multiclass", "binary"],
@@ -124,7 +124,8 @@ def stage1_triplet(args, stage1_dir):
 
 def stage2_head(args, encoder_dir, save_dir):
     print("\n" + "="*60)
-    print(f"STAGE 2: head training (freeze_backbone={args.stage2_freeze_backbone})")
+    freeze = not args.stage2_unfreeze_backbone
+    print(f"STAGE 2: head training (freeze_backbone={freeze})")
     print("="*60)
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -145,7 +146,7 @@ def stage2_head(args, encoder_dir, save_dir):
     del trained_backbone
     torch.cuda.empty_cache()
 
-    if args.stage2_freeze_backbone:
+    if freeze:
         for p in model.backbone.parameters():
             p.requires_grad = False
         print("[stage2] backbone frozen; only head trains")
