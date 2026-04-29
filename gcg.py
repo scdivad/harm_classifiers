@@ -139,6 +139,18 @@ if __name__ == "__main__":
                         help="Dataset split to attack (default: test, "
                              "fallback to train). Set to 'attack_val' to "
                              "target the carved attack validation set.")
+    parser.add_argument("--attack_impl", type=str, default="fast",
+                        choices=["fast", "acg"],
+                        help="Attack backend. 'fast' = plain GCG (gcg_fast); "
+                             "'acg' = ACG (n_replace=4, buffer_size=16) from "
+                             "gcg_acg. ACG also supports --use_i_gcg.")
+    parser.add_argument("--use_i_gcg", action="store_true",
+                        help="Enable I-GCG cumulative-merge (requires "
+                             "--attack_impl acg).")
+    parser.add_argument("--num_steps", type=int, default=250,
+                        help="Number of GCG optimization steps per example.")
+    parser.add_argument("--topk", type=int, default=None,
+                        help="topk for GCG (default: min(512, search_width)).")
     args = parser.parse_args()
 
     print(f"Loading model from {args.base_model_dir} (type={args.model_type})")
@@ -189,16 +201,48 @@ if __name__ == "__main__":
     print(f"Found {total_attacked} correctly-classified examples to attack.")
 
     # --- BATCHED ATTACK (incremental saving + OOM resilience enabled) ---
-    config = BERTGCGConfig(
-        num_steps=250,
-        search_width=args.search_width,
-        topk=min(512, args.search_width),
-        num_restarts=args.num_restarts,
-        verbose=args.verbose,
-        oom_resilient_eval=True,
-        early_stop=False,
-    )
-    optimizer = BERTGCGOptimizer(model, tokenizer, config, DEVICE)
+    _topk = args.topk if args.topk is not None else min(512, args.search_width)
+    if args.attack_impl == "acg":
+        _here = os.path.dirname(os.path.abspath(__file__))
+        for _cand in (os.path.join(_here, '..', 'freeze-lat', 'attacks'),
+                      os.path.join(_here, '..', 'ibp_huggingface', 'attacks')):
+            if os.path.exists(os.path.join(_cand, 'gcg_acg.py')):
+                sys.path.insert(0, _cand)
+                break
+        else:
+            raise FileNotFoundError(
+                "Could not find gcg_acg.py in ../freeze-lat/attacks "
+                "or ../ibp_huggingface/attacks. Sync the attacks/ dir "
+                "to the cluster.")
+        from gcg_acg import (
+            BERTGCGConfig as ACGConfig,
+            BERTGCGOptimizer as ACGOptimizer,
+        )
+        cfg_kw = dict(
+            num_steps=args.num_steps,
+            search_width=args.search_width,
+            topk=_topk,
+            num_restarts=args.num_restarts,
+            verbose=args.verbose,
+            oom_resilient_eval=True,
+            early_stop=False,
+        )
+        if args.use_i_gcg:
+            cfg_kw["use_i_gcg"] = True
+            cfg_kw["n_replace"] = 1
+        config = ACGConfig(**cfg_kw)
+        optimizer = ACGOptimizer(model, tokenizer, config, DEVICE)
+    else:
+        config = BERTGCGConfig(
+            num_steps=args.num_steps,
+            search_width=args.search_width,
+            topk=_topk,
+            num_restarts=args.num_restarts,
+            verbose=args.verbose,
+            oom_resilient_eval=True,
+            early_stop=False,
+        )
+        optimizer = BERTGCGOptimizer(model, tokenizer, config, DEVICE)
 
     all_attack_examples = [(text, 1 - orig_pred) for text, orig_pred in attack_examples]
 
